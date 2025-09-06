@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ASK / FSK / PSK Visualizer</title>
+  <style>
+    :root {
+      --bg: #0f172a;        /* slate-900 */
+      --panel: #111827;     /* gray-900 */
+      --ink: #e5e7eb;       /* gray-200 */
+      --muted: #94a3b8;     /* slate-400 */
+      --accent: #22d3ee;    /* cyan-400 */
+      --accent2: #a78bfa;   /* violet-400 */
+      --ok: #10b981;        /* emerald-500 */
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      color: var(--ink); background: radial-gradient(1200px 800px at 10% -10%, #1f2937 0, #0b1220 40%, var(--bg) 100%);
+      min-height: 100vh; display: flex; flex-direction: column; gap: 16px;
+    }
+    header { padding: 20px 24px 0; }
+    h1 { margin: 0; font-weight: 800; letter-spacing: 0.2px; }
+    .sub { color: var(--muted); margin-top: 6px; }
+
+    .container { padding: 16px 24px 48px; display: grid; gap: 16px; grid-template-columns: 320px 1fr; align-items: start; }
+
+    .card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px; padding: 16px; backdrop-filter: blur(6px); box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    }
+
+    .controls label { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
+    .controls input, .controls select {
+      width: 100%; padding: 10px 12px; margin: 6px 0 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.12); background: #0b1220; color: var(--ink);
+      outline: none; transition: border 0.2s;
+    }
+    .controls input:focus, .controls select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(34, 211, 238, .15); }
+
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+    button {
+      border: 1px solid rgba(255,255,255,0.12); background: #0b1220; color: var(--ink);
+      border-radius: 12px; padding: 10px 14px; cursor: pointer; font-weight: 600;
+    }
+    button.primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #0a0f1f; border: none; }
+    button:active { transform: translateY(1px); }
+
+    .plots { display: grid; gap: 16px; }
+    .plot-card { padding: 8px 12px 12px; }
+    .plot-head { display: flex; align-items: baseline; justify-content: space-between; }
+    .plot-head h3 { margin: 4px 0 8px; }
+    canvas { width: 100%; height: 220px; background: #050910; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); display: block; }
+
+    .legend { font-size: 12px; color: var(--muted); }
+    .footer { text-align: center; font-size: 12px; color: var(--muted); padding: 16px; }
+
+    @media (max-width: 920px) {
+      .container { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Digital Modulation Visualizer — ASK / FSK / PSK</h1>
+    <div class="sub">Pick a modulation type, set carrier & message frequencies, and see the waveforms update instantly. Single-file app — perfect for GitHub Pages.</div>
+  </header>
+
+  <main class="container">
+    <!-- Controls -->
+    <section class="card controls" id="controls">
+      <label>Modulation Type
+        <select id="modType">
+          <option value="ASK">ASK (On-Off Keying)</option>
+          <option value="FSK">FSK (Binary)</option>
+          <option value="PSK">PSK (BPSK)</option>
+        </select>
+      </label>
+
+      <div class="row">
+        <div>
+          <label>Carrier Frequency fc (Hz)
+            <input type="number" id="fc" value="200" min="1" step="1" />
+          </label>
+        </div>
+        <div>
+          <label>Modulating / Bit Frequency fm (Hz)
+            <input type="number" id="fm" value="5" min="0.5" step="0.5" />
+          </label>
+        </div>
+      </div>
+
+      <div class="row" id="askOpts">
+        <div>
+          <label>ASK: A<sub>1</sub> (on-amplitude)
+            <input type="number" id="askA1" value="1" min="0" max="2" step="0.1" />
+          </label>
+        </div>
+        <div>
+          <label>ASK: A<sub>0</sub> (off-amplitude)
+            <input type="number" id="askA0" value="0" min="0" max="1" step="0.1" />
+          </label>
+        </div>
+      </div>
+
+      <div class="row" id="fskOpts" style="display:none;">
+        <div>
+          <label>FSK: Δf (Hz)
+            <input type="number" id="fskDf" value="50" min="1" step="1" />
+          </label>
+        </div>
+        <div>
+          <label>FSK: Use fc±Δf (readonly)
+            <input type="text" id="fskInfo" value="f0 = fc - Δf, f1 = fc + Δf" disabled />
+          </label>
+        </div>
+      </div>
+
+      <div class="row" id="pskOpts" style="display:none;">
+        <div>
+          <label>PSK: Phase for bit "1" (deg)
+            <input type="number" id="pskPhase1" value="0" step="1" />
+          </label>
+        </div>
+        <div>
+          <label>PSK: Phase for bit "0" (deg)
+            <input type="number" id="pskPhase0" value="180" step="1" />
+          </label>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Duration (ms)
+            <input type="number" id="durationMs" value="500" min="50" step="10" />
+          </label>
+        </div>
+        <div>
+          <label>Sampling Rate (samples/sec)
+            <input type="number" id="fs" value="20000" min="2000" step="1000" />
+          </label>
+        </div>
+      </div>
+
+      <div class="buttons">
+        <button class="primary" id="btnRedraw">Redraw</button>
+        <button id="btnPlay">Play Audio (carrier muted)</button>
+        <button id="btnStop">Stop</button>
+        <button id="btnDownload">Download PNG</button>
+      </div>
+
+      <div class="legend" style="margin-top:8px;">
+        Tip: fm is the bit rate (square wave). For clean visuals, keep fc ≫ fm. Audio is synthesized from the <em>modulated signal</em>.
+      </div>
+    </section>
+
+    <!-- Plots -->
+    <section class="plots">
+      <div class="card plot-card">
+        <div class="plot-head">
+          <h3>Message (Binary) — b(t)</h3>
+          <div class="legend">Square wave at fm. b(t) ∈ {0,1}</div>
+        </div>
+        <canvas id="msg"></canvas>
+      </div>
+
+      <div class="card plot-card">
+        <div class="plot-head">
+          <h3>Carrier — c(t) = cos(2π f<sub>c</sub> t)</h3>
+          <div class="legend">Reference carrier only</div>
+        </div>
+        <canvas id="car"></canvas>
+      </div>
+
+      <div class="card plot-card">
+        <div class="plot-head">
+          <h3>Modulated Signal — s(t)</h3>
+          <div class="legend" id="eqnText">ASK: s(t) = [A0 + (A1−A0)·b(t)] · cos(2π f<sub>c</sub> t)</div>
+        </div>
+        <canvas id="sig"></canvas>
+      </div>
+    </section>
+  </main>
+
+  <div class="footer">Single HTML file — drop into a GitHub repo and enable GitHub Pages (Settings → Pages). © 2025</div>
+
+  <script>
+    // --------- Helpers ---------
+    const $ = (id) => document.getElementById(id);
+
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+    function makeTimeAxis(fs, durationMs) {
+      const N = Math.max(100, Math.floor(fs * (durationMs / 1000)));
+      const dt = 1 / fs;
+      const t = new Float32Array(N);
+      for (let i = 0; i < N; i++) t[i] = i * dt;
+      return t;
+    }
+
+    function squareWave(freq, t) {
+      // 0/1 square, 50% duty
+      const y = new Float32Array(t.length);
+      for (let i = 0; i < t.length; i++) {
+        y[i] = Math.sin(2 * Math.PI * freq * t[i]) >= 0 ? 1 : 0;
+      }
+      return y;
+    }
+
+    function cosWave(freq, t, phaseRad = 0) {
+      const y = new Float32Array(t.length);
+      const w = 2 * Math.PI * freq;
+      for (let i = 0; i < t.length; i++) y[i] = Math.cos(w * t[i] + phaseRad);
+      return y;
+    }
+
+    function plotLine(canvas, xNorm, y, opts = {}) {
+      // xNorm: 0..1 values across canvas; y: -1..1 range preferred
+      const ctx = canvas.getContext('2d');
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      // Resize backing store for crispness
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+      ctx.scale(dpr, dpr);
+
+      // Clear & grid
+      ctx.fillStyle = '#050910';
+      ctx.fillRect(0, 0, w, h);
+      drawGrid(ctx, w, h);
+
+      // Axis zero line
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, h/2);
+      ctx.lineTo(w, h/2);
+      ctx.stroke();
+
+      // Plot
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = opts.color || '#22d3ee';
+      ctx.beginPath();
+      for (let i = 0; i < y.length; i++) {
+        const x = xNorm[i] * w;
+        const yy = (1 - (y[i] * (opts.yr || 1) + 1) / 2) * h; // map [-1,1] → [h,0]
+        if (i === 0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
+      }
+      ctx.stroke();
+    }
+
+    function drawGrid(ctx, w, h) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.lineWidth = 1;
+      const nx = 10, ny = 4;
+      ctx.beginPath();
+      for (let i = 1; i < nx; i++) { const x = (i / nx) * w; ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+      for (let j = 1; j < ny; j++) { const y = (j / ny) * h; ctx.moveTo(0, y); ctx.lineTo(w, y); }
+      ctx.stroke();
+    }
+
+    function normalizeX(t) {
+      const T = t[t.length - 1] || 1;
+      const x = new Float32Array(t.length);
+      for (let i = 0; i < t.length; i++) x[i] = t[i] / T;
+      return x;
+    }
+
+    function updateEqnText(kind, params) {
+      const el = $('eqnText');
+      if (kind === 'ASK') {
+        el.innerHTML = `ASK: s(t) = [A₀ + (A₁−A₀)·b(t)] · cos(2π f<sub>c</sub> t)`;
+      } else if (kind === 'FSK') {
+        el.innerHTML = `FSK: s(t) = cos(2π f(t) t), with f(t) = f<sub>0</sub> when b(t)=0 and f<sub>1</sub> when b(t)=1;  f<sub>0</sub>=f<sub>c</sub>−Δf, f<sub>1</sub>=f<sub>c</sub>+Δf`;
+      } else {
+        el.innerHTML = `BPSK: s(t) = cos(2π f<sub>c</sub> t + φ(t)), with φ=φ₀ when b(t)=0 and φ=φ₁ when b(t)=1`;
+      }
+    }
+
+    // --------- Core Simulation ---------
+    function simulate() {
+      const kind = $('modType').value;
+      const fc = clamp(parseFloat($('fc').value) || 200, 1, 200000);
+      const fm = clamp(parseFloat($('fm').value) || 5, 0.1, 2000);
+      const fs = clamp(parseFloat($('fs').value) || 20000, 2000, 192000);
+      const durationMs = clamp(parseFloat($('durationMs').value) || 500, 50, 5000);
+
+      const t = makeTimeAxis(fs, durationMs);
+      const x = normalizeX(t);
+
+      // message bits: 0/1 square at fm
+      const b01 = squareWave(fm, t); // 0 or 1
+      // carrier
+      const c = cosWave(fc, t);
+
+      // modulated signal
+      let s = new Float32Array(t.length);
+
+      if (kind === 'ASK') {
+        const A1 = Math.max(0, parseFloat($('askA1').value) || 1);
+        const A0 = Math.max(0, parseFloat($('askA0').value) || 0);
+        for (let i = 0; i < t.length; i++) {
+          const A = A0 + (A1 - A0) * b01[i];
+          s[i] = A * c[i];
+        }
+        $('askOpts').style.display = '';
+        $('fskOpts').style.display = 'none';
+        $('pskOpts').style.display = 'none';
+      } else if (kind === 'FSK') {
+        const df = Math.max(1, parseFloat($('fskDf').value) || 50);
+        const w0 = 2 * Math.PI * (fc - df);
+        const w1 = 2 * Math.PI * (fc + df);
+        let phase = 0; // continuous phase FSK
+        const dt = 1 / fs;
+        for (let i = 0; i < t.length; i++) {
+          const w = b01[i] > 0.5 ? w1 : w0;
+          phase += w * dt; // integrate frequency → phase
+          s[i] = Math.cos(phase);
+        }
+        $('askOpts').style.display = 'none';
+        $('fskOpts').style.display = '';
+        $('pskOpts').style.display = 'none';
+      } else { // PSK (BPSK)
+        const ph1 = ((parseFloat($('pskPhase1').value) || 0) * Math.PI) / 180;
+        const ph0 = ((parseFloat($('pskPhase0').value) || 180) * Math.PI) / 180;
+        const w = 2 * Math.PI * fc;
+        for (let i = 0; i < t.length; i++) {
+          const ph = b01[i] > 0.5 ? ph1 : ph0;
+          s[i] = Math.cos(w * t[i] + ph);
+        }
+        $('askOpts').style.display = 'none';
+        $('fskOpts').style.display = 'none';
+        $('pskOpts').style.display = '';
+      }
+
+      updateEqnText(kind, {});
+
+      // Scale message to -1..1 for plotting (0→-1, 1→+1)
+      const mPlot = new Float32Array(t.length);
+      for (let i = 0; i < t.length; i++) mPlot[i] = b01[i] * 2 - 1;
+
+      // Plot all
+      plotLine($("msg"), x, mPlot);
+      plotLine($("car"), x, c);
+      plotLine($("sig"), x, s, { color: '#a78bfa' });
+
+      // store last signal for audio/PNG
+      lastData = { fs, t, s, x };
+    }
+
+    // --------- Audio (WebAudio) ---------
+    let audioCtx = null;
+    let audioNode = null;
+    let lastData = null;
+
+    function playAudio() {
+      if (!lastData) simulate();
+      const { fs, s } = lastData;
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const buffer = audioCtx.createBuffer(1, s.length, fs);
+      // Normalize to avoid clipping in speakers
+      const ch = buffer.getChannelData(0);
+      let maxAbs = 1e-6;
+      for (let i = 0; i < s.length; i++) if (Math.abs(s[i]) > maxAbs) maxAbs = Math.abs(s[i]);
+      const scale = 0.6 / maxAbs;
+      for (let i = 0; i < s.length; i++) ch[i] = s[i] * scale;
+
+      stopAudio();
+      audioNode = audioCtx.createBufferSource();
+      audioNode.buffer = buffer;
+      audioNode.connect(audioCtx.destination);
+      audioNode.start();
+    }
+
+    function stopAudio() {
+      try { if (audioNode) { audioNode.stop(0); audioNode.disconnect(); } } catch {}
+      audioNode = null;
+    }
+
+    // --------- PNG Download ---------
+    function downloadPNGs() {
+      const canvases = [ $('msg'), $('car'), $('sig') ];
+      canvases.forEach((cv, idx) => {
+        const link = document.createElement('a');
+        link.download = ['message','carrier','signal'][idx] + '.png';
+        link.href = cv.toDataURL('image/png');
+        link.click();
+      });
+    }
+
+    // --------- Wire up ---------
+    $('btnRedraw').addEventListener('click', simulate);
+    $('btnPlay').addEventListener('click', playAudio);
+    $('btnStop').addEventListener('click', stopAudio);
+    $('btnDownload').addEventListener('click', downloadPNGs);
+    $('modType').addEventListener('change', simulate);
+
+    // Redraw on any input change (debounced)
+    let to = null;
+    document.querySelectorAll('#controls input').forEach(el => {
+      el.addEventListener('input', () => {
+        clearTimeout(to); to = setTimeout(simulate, 80);
+      });
+    });
+
+    window.addEventListener('resize', () => { simulate(); });
+
+    // First draw
+    simulate();
+  </script>
+</body>
+</html>
